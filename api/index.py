@@ -47,41 +47,34 @@ def process_image():
                 return f"BG API Error: {response.text}", 500
 
         # --- 2. REMINI-STYLE AI ENHANCEMENT (GFPGAN) ---
-        elif action == 'enhance':
-            # Image ko Base64 mein convert karna
-            buffered = io.BytesIO()
-            img.save(buffered, format="JPEG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            img_data_uri = f"data:image/jpeg;base64,{img_str}"
-
-            headers = {
-                "Authorization": f"Token {REPLICATE_API_TOKEN}",
-                "Content-Type": "application/json"
-            }
+    elif action == 'enhance':
+            # 1. Photo ko bhejne se pehle chota karein (Compression)
+            # Taaki API jaldi respond kare
+            img.thumbnail((700, 700)) 
             
-            payload = {
-                "version": "7de2ea1114d03d9f344863e2a95c944487f3b610c21342c366472477382221b6",
-                "input": {"img": img_data_uri, "upscale": 2}
-            }
+            # ... (Base64 conversion code) ...
 
-            # Start AI Prediction
-            res_start = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=payload)
-            if res_start.status_code != 201:
-                return f"AI API Error: {res_start.text}", 500
-            
-            predict_id = res_start.json()['id']
-            # Loop jab tak AI process na ho jaye
+            # 2. Safety Break: Maximum 25 second wait karein
+            start_time = time.time()
             while True:
+                # Agar 25 second se zyada ho gaya, toh loop stop kar do
+                if time.time() - start_time > 25:
+                    return "AI is taking too long. Please try a smaller photo.", 504
+                
                 res_check = requests.get(f"https://api.replicate.com/v1/predictions/{predict_id}", headers=headers)
-                status = res_check.json()['status']
+                data = res_check.json()
+                status = data.get('status')
+                
                 if status == "succeeded":
-                    output_url = res_check.json()['output']
+                    output_url = data['output']
                     img_res = requests.get(output_url)
                     img = Image.open(io.BytesIO(img_res.content))
                     break
                 elif status == "failed":
-                    return "AI Restoration Failed", 500
-                time.sleep(1) # 1 second wait karein
+                    return "AI Model failed to process.", 500
+                
+                # Wait time badha dein (2-3 second) taaki connection baar-baar na bane
+                time.sleep(3)
 
         # --- 3. RESIZE ---
         elif action == 'resize':
