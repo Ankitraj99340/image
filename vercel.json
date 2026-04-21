@@ -2,8 +2,7 @@
   "version": 2,
   "functions": {
     "index.py": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 10,
     }
   },
   "rewrites": [
