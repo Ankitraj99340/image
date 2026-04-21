@@ -1,6 +1,8 @@
 import os
 import requests
 import io
+import base64
+import time
 from flask import Flask, request, send_file, render_template
 from flask_cors import CORS
 from PIL import Image, ImageEnhance, ImageFilter
@@ -8,8 +10,9 @@ from PIL import Image, ImageEnhance, ImageFilter
 app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
-# --- API KEY (Yahan apni remove.bg key dalein) ---
-REMOVE_BG_API_KEY = "243wBcfWYybSEGmKZTyM9EAz"
+# --- API KEYS (Yahan apni keys dalein) ---
+REMOVE_BG_API_KEY = "YOUR_REMOVE_BG_KEY"
+REPLICATE_API_TOKEN = "YOUR_REPLICATE_TOKEN"
 
 @app.route('/')
 def home():
@@ -29,9 +32,9 @@ def process_image():
         mimetype = 'image/png'
         download_name = 'processed_image.png'
 
-        # 1. FEATURE: Background Removal (Via API - No Crash)
+        # --- 1. AI BACKGROUND REMOVAL ---
         if action == 'remove_bg':
-            file.stream.seek(0) # File pointer reset
+            file.stream.seek(0)
             response = requests.post(
                 'https://api.remove.bg/v1.0/removebg',
                 files={'image_file': file.read()},
@@ -41,50 +44,81 @@ def process_image():
             if response.status_code == requests.codes.ok:
                 img = Image.open(io.BytesIO(response.content))
             else:
-                return f"API Error: {response.text}", 500
+                return f"BG API Error: {response.text}", 500
 
-        # 2. FEATURE: Professional Enhancement
+        # --- 2. REMINI-STYLE AI ENHANCEMENT (GFPGAN) ---
         elif action == 'enhance':
-            if img.mode != 'RGB': img = img.convert('RGB')
-            img = ImageEnhance.Contrast(img).enhance(1.4)
-            img = ImageEnhance.Sharpness(img).enhance(2.5)
-            img = ImageEnhance.Color(img).enhance(1.2)
-            img = img.filter(ImageFilter.DETAIL)
+            # Image ko Base64 mein convert karna
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            img_data_uri = f"data:image/jpeg;base64,{img_str}"
 
-        # 3. FEATURE: Resize
+            headers = {
+                "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "version": "7de2ea1114d03d9f344863e2a95c944487f3b610c21342c366472477382221b6",
+                "input": {"img": img_data_uri, "upscale": 2}
+            }
+
+            # Start AI Prediction
+            res_start = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=payload)
+            if res_start.status_code != 201:
+                return f"AI API Error: {res_start.text}", 500
+            
+            predict_id = res_start.json()['id']
+            # Loop jab tak AI process na ho jaye
+            while True:
+                res_check = requests.get(f"https://api.replicate.com/v1/predictions/{predict_id}", headers=headers)
+                status = res_check.json()['status']
+                if status == "succeeded":
+                    output_url = res_check.json()['output']
+                    img_res = requests.get(output_url)
+                    img = Image.open(io.BytesIO(img_res.content))
+                    break
+                elif status == "failed":
+                    return "AI Restoration Failed", 500
+                time.sleep(1) # 1 second wait karein
+
+        # --- 3. RESIZE ---
         elif action == 'resize':
             w = int(request.form.get('width', 800))
             h = int(request.form.get('height', 800))
             img = img.resize((w, h), Image.Resampling.LANCZOS)
 
-        # 4. FEATURE: Smart Compression
+        # --- 4. SMART COMPRESSION ---
         elif action == 'compress':
             if img.mode in ("RGBA", "P"): img = img.convert("RGB")
             target_kb = float(request.form.get('target_kb', 100))
             save_format, mimetype = 'JPEG', 'image/jpeg'
             download_name = 'compressed.jpg'
             
-            # Binary search logic for perfect compression
             quality = 95
             img_io = io.BytesIO()
-            img.save(img_io, format='JPEG', quality=quality)
-            while img_io.tell() > target_kb * 1024 and quality > 10:
-                quality -= 5
+            while quality > 10:
                 img_io = io.BytesIO()
-                img.save(img_io, format='JPEG', quality=quality)
+                img.save(img_io, format='JPEG', quality=quality, optimize=True)
+                if img_io.tell() <= target_kb * 1024:
+                    break
+                quality -= 5
             img_io.seek(0)
             return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
-        # EXTRA FEATURE: Auto-Fix (Brightness & Sharpness balance)
-        if request.form.get('autofix') == 'true':
-            img = ImageEnhance.Brightness(img).enhance(1.1)
-            img = ImageEnhance.Sharpness(img).enhance(1.5)
-
-        # Final Response
+        # Final Save Logic (Size control)
         img_io = io.BytesIO()
-        img.save(img_io, format=save_format)
+        if save_format == 'PNG':
+            img.save(img_io, format='PNG', optimize=True)
+        else:
+            img.save(img_io, format='JPEG', quality=85, optimize=True)
+            
         img_io.seek(0)
         return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
     except Exception as e:
         return str(e), 500
+
+#if __name__ == '__main__':
+   # app.run(debug=True, port=5000)
