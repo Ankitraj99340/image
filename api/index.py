@@ -10,9 +10,9 @@ from PIL import Image, ImageEnhance, ImageFilter
 app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
-# --- API KEYS (Yahan apni keys dalein) ---
-REMOVE_BG_API_KEY = "243wBcfWYybSEGmKZTyM9EAz"
-REPLICATE_API_TOKEN = "r8_GTioDnQH7DEzPwup7zwTFftk9XyK7JS2RvL73"
+# --- API KEYS ---
+REMOVE_BG_API_KEY = "YOUR_REMOVE_BG_KEY"
+REPLICATE_API_TOKEN = "YOUR_REPLICATE_TOKEN"
 
 @app.route('/')
 def home():
@@ -20,6 +20,7 @@ def home():
 
 @app.route('/process', methods=['POST'])
 def process_image():
+    img = None # Memory management ke liye
     try:
         if 'image' not in request.files:
             return "No image uploaded", 400
@@ -46,20 +47,38 @@ def process_image():
             else:
                 return f"BG API Error: {response.text}", 500
 
-        # --- 2. REMINI-STYLE AI ENHANCEMENT (GFPGAN) ---
-   elif action == 'enhance':
-            # 1. Photo ko resize karo taaki AI fast chale (Remini bhi yahi karta hai)
-            # 800px width par quality achi aayegi aur speed 3x badh jayegi
-            img.thumbnail((800, 800)) 
+        # --- 2. REMINI-STYLE AI ENHANCEMENT (Optimized for Vercel) ---
+        elif action == 'enhance':
+            # Vercel Timeout se bachne ke liye photo choti karein
+            img.thumbnail((750, 750)) 
             
-            # ... (Base64 conversion code) ...
+            buffered = io.BytesIO()
+            img.save(buffered, format="JPEG", quality=85)
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            img_data_uri = f"data:image/jpeg;base64,{img_str}"
 
-            # 2. Replicate API request (Wait logic ko thoda relax karo)
+            headers = {
+                "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "version": "7de2ea1114d03d9f344863e2a95c944487f3b610c21342c366472477382221b6",
+                "input": {"img": img_data_uri, "upscale": 2}
+            }
+
+            res_start = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=payload)
+            if res_start.status_code != 201:
+                return f"AI API Error: {res_start.text}", 500
+            
+            predict_id = res_start.json()['id']
             start_time = time.time()
+
+            # Smart Loop with Timeout protection
             while True:
-                # Agar 50 second ho gaye, toh loop tod do (Vercel crash se pehle)
-                if time.time() - start_time > 50:
-                    return "AI processing took too long. Try a smaller image.", 504
+                # Agar 45 second se upar hua toh band karo (Vercel limit)
+                if time.time() - start_time > 45:
+                    return "AI processing took too long. Try a smaller photo.", 504
                 
                 res_check = requests.get(f"https://api.replicate.com/v1/predictions/{predict_id}", headers=headers)
                 data = res_check.json()
@@ -70,10 +89,9 @@ def process_image():
                     img = Image.open(io.BytesIO(img_res.content))
                     break
                 elif status == "failed":
-                    return "AI Generation Error", 500
+                    return "AI Restoration Failed", 500
                 
-                # 3 second ka gap taaki connection baar-baar reset na ho
-                time.sleep(3)
+                time.sleep(3) # Load kam karne ke liye gap
 
         # --- 3. RESIZE ---
         elif action == 'resize':
@@ -99,7 +117,7 @@ def process_image():
             img_io.seek(0)
             return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
-        # Final Save Logic (Size control)
+        # FINAL OUTPUT (Optimized size)
         img_io = io.BytesIO()
         if save_format == 'PNG':
             img.save(img_io, format='PNG', optimize=True)
@@ -111,6 +129,9 @@ def process_image():
 
     except Exception as e:
         return str(e), 500
+    finally:
+        if img:
+            img.close() # Memory release karein
 
 #if __name__ == '__main__':
-   # app.run(debug=True, port=5000)
+#    app.run(debug=True, port=5000)
