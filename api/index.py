@@ -11,8 +11,8 @@ app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
 # --- API KEYS (Yahan apni keys dalein) ---
-REMOVE_BG_API_KEY = "YOUR_REMOVE_BG_KEY"
-REPLICATE_API_TOKEN = "YOUR_REPLICATE_TOKEN"
+REMOVE_BG_API_KEY = "243wBcfWYybSEGmKZTyM9EAz"
+REPLICATE_API_TOKEN = "r8_GTioDnQH7DEzPwup7zwTFftk9XyK7JS2RvL73"
 
 @app.route('/')
 def home():
