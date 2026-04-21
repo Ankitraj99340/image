@@ -47,33 +47,32 @@ def process_image():
                 return f"BG API Error: {response.text}", 500
 
         # --- 2. REMINI-STYLE AI ENHANCEMENT (GFPGAN) ---
-    elif action == 'enhance':
-            # 1. Photo ko bhejne se pehle chota karein (Compression)
-            # Taaki API jaldi respond kare
-            img.thumbnail((700, 700)) 
+   elif action == 'enhance':
+            # 1. Photo ko resize karo taaki AI fast chale (Remini bhi yahi karta hai)
+            # 800px width par quality achi aayegi aur speed 3x badh jayegi
+            img.thumbnail((800, 800)) 
             
             # ... (Base64 conversion code) ...
 
-            # 2. Safety Break: Maximum 25 second wait karein
+            # 2. Replicate API request (Wait logic ko thoda relax karo)
             start_time = time.time()
             while True:
-                # Agar 25 second se zyada ho gaya, toh loop stop kar do
-                if time.time() - start_time > 25:
-                    return "AI is taking too long. Please try a smaller photo.", 504
+                # Agar 50 second ho gaye, toh loop tod do (Vercel crash se pehle)
+                if time.time() - start_time > 50:
+                    return "AI processing took too long. Try a smaller image.", 504
                 
                 res_check = requests.get(f"https://api.replicate.com/v1/predictions/{predict_id}", headers=headers)
                 data = res_check.json()
                 status = data.get('status')
                 
                 if status == "succeeded":
-                    output_url = data['output']
-                    img_res = requests.get(output_url)
+                    img_res = requests.get(data['output'])
                     img = Image.open(io.BytesIO(img_res.content))
                     break
                 elif status == "failed":
-                    return "AI Model failed to process.", 500
+                    return "AI Generation Error", 500
                 
-                # Wait time badha dein (2-3 second) taaki connection baar-baar na bane
+                # 3 second ka gap taaki connection baar-baar reset na ho
                 time.sleep(3)
 
         # --- 3. RESIZE ---
