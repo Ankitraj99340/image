@@ -1,5 +1,12 @@
 {
+  "version": 2,
+  "functions": {
+    "index.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/app" }
+    { "source": "/(.*)", "destination": "index.py" }
   ]
 }
