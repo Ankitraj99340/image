@@ -7,8 +7,11 @@ from flask import Flask, request, send_file, render_template
 from flask_cors import CORS
 from PIL import Image, ImageEnhance, ImageFilter
 
-# Flask setup - simple and clean for both Vercel & Render
-app = Flask(__name__, template_folder='../templates')
+# Ye 3 lines Flask ko sahi rasta batayengi
+base_dir = os.path.dirname(os.path.abspath(__file__))
+template_dir = os.path.join(base_dir, '..', 'templates')
+
+app = Flask(__name__, template_folder=template_dir)
 CORS(app)
 
 # --- API KEY ---
