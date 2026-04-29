@@ -1,8 +1,8 @@
 import os
 import requests
 import io
-import base64
-import time
+import cv2
+import numpy as np 
 from flask import Flask, request, send_file, render_template
 from flask_cors import CORS
 from PIL import Image, ImageEnhance, ImageFilter
@@ -10,9 +10,8 @@ from PIL import Image, ImageEnhance, ImageFilter
 app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
-# --- API KEYS ---
+# --- API KEY ---
 REMOVE_BG_API_KEY = "243wBcfWYybSEGmKZTyM9EAz"
-REPLICATE_API_TOKEN = "r8_GTioDnQH7DEzPwup7zwTFftk9XyK7JS2RvL73"
 
 @app.route('/')
 def home():
@@ -20,7 +19,6 @@ def home():
 
 @app.route('/process', methods=['POST'])
 def process_image():
-    img = None # Memory management ke liye
     try:
         if 'image' not in request.files:
             return "No image uploaded", 400
@@ -29,13 +27,18 @@ def process_image():
         action = request.form.get('action')
         img = Image.open(file.stream)
         
+        # Default settings
         save_format = 'PNG'
         mimetype = 'image/png'
         download_name = 'processed_image.png'
 
-        # --- 1. AI BACKGROUND REMOVAL ---
+        # Ensure image is in RGB for processing
+        if img.mode != 'RGB' and action != 'remove_bg':
+            img = img.convert('RGB')
+
+        # --- 1. FEATURE: Background Removal (Wahi Same Logic) ---
         if action == 'remove_bg':
-            file.stream.seek(0)
+            file.stream.seek(0) 
             response = requests.post(
                 'https://api.remove.bg/v1.0/removebg',
                 files={'image_file': file.read()},
@@ -44,62 +47,48 @@ def process_image():
             )
             if response.status_code == requests.codes.ok:
                 img = Image.open(io.BytesIO(response.content))
+                download_name = 'no_bg.png'
             else:
-                return f"BG API Error: {response.text}", 500
+                return f"API Error: {response.text}", 500
 
-        # --- 2. REMINI-STYLE AI ENHANCEMENT (Optimized for Vercel) ---
+        # --- 2. FEATURE: Professional Enhancement (New Natural Logic) ---
         elif action == 'enhance':
-            # Vercel Timeout se bachne ke liye photo choti karein
-            img.thumbnail((750, 750)) 
+            # Step 1: Subtle Upscaling (1.5x quality ke liye)
+            w, h = img.size
+            img = img.resize((int(w * 1.5), int(h * 1.5)), Image.Resampling.LANCZOS)
             
-            buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=85)
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            img_data_uri = f"data:image/jpeg;base64,{img_str}"
+            img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
-            headers = {
-                "Authorization": f"Token {REPLICATE_API_TOKEN}",
-                "Content-Type": "application/json"
-            }
+            # Step 2: Bilateral Filtering (Natural Smoothing)
+            # fastNlMeans ki jagah ye use kiya hai taaki chehra 'harsh' na dikhe
+            img_cv = cv2.bilateralFilter(img_cv, d=5, sigmaColor=35, sigmaSpace=35)
+
+            # Step 3: CLAHE (Natural Contrast)
+            lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(4,4))
+            l = clahe.apply(l)
+            img_cv = cv2.merge((l, a, b))
+            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_LAB2BGR)
+
+            # Step 4: Back to PIL
+            img = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
+
+            # Step 5: Smart Sharpening (Soft edges)
+            img = img.filter(ImageFilter.UnsharpMask(radius=0.8, percent=100, threshold=3))
             
-            payload = {
-                "version": "7de2ea1114d03d9f344863e2a95c944487f3b610c21342c366472477382221b6",
-                "input": {"img": img_data_uri, "upscale": 2}
-            }
+            # Step 6: Final Polish
+            img = ImageEnhance.Color(img).enhance(1.15)
+            img = ImageEnhance.Contrast(img).enhance(1.05)
+            download_name = 'enhanced.png'
 
-            res_start = requests.post("https://api.replicate.com/v1/predictions", headers=headers, json=payload)
-            if res_start.status_code != 201:
-                return f"AI API Error: {res_start.text}", 500
-            
-            predict_id = res_start.json()['id']
-            start_time = time.time()
-
-            # Smart Loop with Timeout protection
-            while True:
-                # Agar 45 second se upar hua toh band karo (Vercel limit)
-                if time.time() - start_time > 45:
-                    return "AI processing took too long. Try a smaller photo.", 504
-                
-                res_check = requests.get(f"https://api.replicate.com/v1/predictions/{predict_id}", headers=headers)
-                data = res_check.json()
-                status = data.get('status')
-                
-                if status == "succeeded":
-                    img_res = requests.get(data['output'])
-                    img = Image.open(io.BytesIO(img_res.content))
-                    break
-                elif status == "failed":
-                    return "AI Restoration Failed", 500
-                
-                time.sleep(3) # Load kam karne ke liye gap
-
-        # --- 3. RESIZE ---
+        # --- 3. FEATURE: Resize (Wahi Same Logic) ---
         elif action == 'resize':
             w = int(request.form.get('width', 800))
             h = int(request.form.get('height', 800))
             img = img.resize((w, h), Image.Resampling.LANCZOS)
 
-        # --- 4. SMART COMPRESSION ---
+        # --- 4. FEATURE: Smart Compression (Wahi Same Logic) ---
         elif action == 'compress':
             if img.mode in ("RGBA", "P"): img = img.convert("RGB")
             target_kb = float(request.form.get('target_kb', 100))
@@ -108,30 +97,27 @@ def process_image():
             
             quality = 95
             img_io = io.BytesIO()
-            while quality > 10:
-                img_io = io.BytesIO()
-                img.save(img_io, format='JPEG', quality=quality, optimize=True)
-                if img_io.tell() <= target_kb * 1024:
-                    break
+            img.save(img_io, format='JPEG', quality=quality)
+            while img_io.tell() > target_kb * 1024 and quality > 10:
                 quality -= 5
+                img_io = io.BytesIO()
+                img.save(img_io, format='JPEG', quality=quality)
             img_io.seek(0)
             return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
-        # FINAL OUTPUT (Optimized size)
+        # --- EXTRA FEATURE: Auto-Fix ---
+        if request.form.get('autofix') == 'true':
+            img = ImageEnhance.Brightness(img).enhance(1.1)
+            img = ImageEnhance.Sharpness(img).enhance(1.5)
+
+        # Final Response
         img_io = io.BytesIO()
-        if save_format == 'PNG':
-            img.save(img_io, format='PNG', optimize=True)
-        else:
-            img.save(img_io, format='JPEG', quality=85, optimize=True)
-            
+        img.save(img_io, format=save_format)
         img_io.seek(0)
         return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
     except Exception as e:
-        return str(e), 500
-    finally:
-        if img:
-            img.close() # Memory release karein
+        return f"Server Error: {str(e)}", 500
 
-#if __name__ == '__main__':
-#    app.run(debug=True, port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
