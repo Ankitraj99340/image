@@ -118,6 +118,9 @@ def process_image():
 
     except Exception as e:
         return f"Server Error: {str(e)}", 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        
+    if __name__ == '__main__':
+    # Render automatically PORT environment variable deta hai
+    port = int(os.environ.get("PORT", 5000))
+    # 0.0.0.0 par host karna zaroori hai Render ke liye
+    app.run(host='0.0.0.0', port=port)
