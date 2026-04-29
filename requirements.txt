@@ -1,4 +1,7 @@
 flask
 flask-cors
 requests
-Pillow
+pillow
+numpy
+opencv-python-headless
+gunicorn
