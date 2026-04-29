@@ -7,7 +7,8 @@ from flask import Flask, request, send_file, render_template
 from flask_cors import CORS
 from PIL import Image, ImageEnhance, ImageFilter
 
-app = Flask(__name__, template_folder='../templates')
+# Flask setup - simple and clean for both Vercel & Render
+app = Flask(__name__)
 CORS(app)
 
 # --- API KEY ---
@@ -36,7 +37,7 @@ def process_image():
         if img.mode != 'RGB' and action != 'remove_bg':
             img = img.convert('RGB')
 
-        # --- 1. FEATURE: Background Removal (Wahi Same Logic) ---
+        # --- 1. FEATURE: Background Removal ---
         if action == 'remove_bg':
             file.stream.seek(0) 
             response = requests.post(
@@ -51,19 +52,14 @@ def process_image():
             else:
                 return f"API Error: {response.text}", 500
 
-        # --- 2. FEATURE: Professional Enhancement (New Natural Logic) ---
+        # --- 2. FEATURE: Professional Enhancement ---
         elif action == 'enhance':
-            # Step 1: Subtle Upscaling (1.5x quality ke liye)
             w, h = img.size
             img = img.resize((int(w * 1.5), int(h * 1.5)), Image.Resampling.LANCZOS)
             
             img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-
-            # Step 2: Bilateral Filtering (Natural Smoothing)
-            # fastNlMeans ki jagah ye use kiya hai taaki chehra 'harsh' na dikhe
             img_cv = cv2.bilateralFilter(img_cv, d=5, sigmaColor=35, sigmaSpace=35)
 
-            # Step 3: CLAHE (Natural Contrast)
             lab = cv2.cvtColor(img_cv, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(4,4))
@@ -71,24 +67,20 @@ def process_image():
             img_cv = cv2.merge((l, a, b))
             img_cv = cv2.cvtColor(img_cv, cv2.COLOR_LAB2BGR)
 
-            # Step 4: Back to PIL
             img = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
-
-            # Step 5: Smart Sharpening (Soft edges)
             img = img.filter(ImageFilter.UnsharpMask(radius=0.8, percent=100, threshold=3))
             
-            # Step 6: Final Polish
             img = ImageEnhance.Color(img).enhance(1.15)
             img = ImageEnhance.Contrast(img).enhance(1.05)
             download_name = 'enhanced.png'
 
-        # --- 3. FEATURE: Resize (Wahi Same Logic) ---
+        # --- 3. FEATURE: Resize ---
         elif action == 'resize':
             w = int(request.form.get('width', 800))
             h = int(request.form.get('height', 800))
             img = img.resize((w, h), Image.Resampling.LANCZOS)
 
-        # --- 4. FEATURE: Smart Compression (Wahi Same Logic) ---
+        # --- 4. FEATURE: Smart Compression ---
         elif action == 'compress':
             if img.mode in ("RGBA", "P"): img = img.convert("RGB")
             target_kb = float(request.form.get('target_kb', 100))
@@ -105,11 +97,6 @@ def process_image():
             img_io.seek(0)
             return send_file(img_io, mimetype=mimetype, as_attachment=True, download_name=download_name)
 
-        # --- EXTRA FEATURE: Auto-Fix ---
-        if request.form.get('autofix') == 'true':
-            img = ImageEnhance.Brightness(img).enhance(1.1)
-            img = ImageEnhance.Sharpness(img).enhance(1.5)
-
         # Final Response
         img_io = io.BytesIO()
         img.save(img_io, format=save_format)
@@ -118,7 +105,8 @@ def process_image():
 
     except Exception as e:
         return f"Server Error: {str(e)}", 500
-        
-   if __name__ == "__main__":
+
+# --- YE VALA HISSA DHAYAN SE DEKHO (Correct Indentation) ---
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
