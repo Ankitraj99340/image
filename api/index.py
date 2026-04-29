@@ -8,7 +8,7 @@ from flask_cors import CORS
 from PIL import Image, ImageEnhance, ImageFilter
 
 # Flask setup - simple and clean for both Vercel & Render
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../templates')
 CORS(app)
 
 # --- API KEY ---
